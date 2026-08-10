@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>BFSIboard — Self-Hosted Dashboard</title>
+<style>
+  :root { --bg:#0f172a; --panel:#1e293b; --line:#334155; --text:#e2e8f0; --muted:#94a3b8; --blue:#3b82f6; --high:#f87171; --medium:#fbbf24; --low:#38bdf8; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; min-height:100vh; }
+  header { border-bottom:1px solid var(--line); padding:14px 24px; display:flex; align-items:center; gap:14px; position:sticky; top:0; background:var(--bg); z-index:5; }
+  .logo { width:34px; height:34px; border-radius:9px; background:var(--blue); display:grid; place-items:center; font-weight:800; color:#fff; }
+  header h1 { font-size:16px; font-weight:700; }
+  header .sub { color:var(--muted); font-size:12px; }
+  .spacer { flex:1; }
+  .status-pill { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted); background:var(--panel); padding:6px 12px; border-radius:999px; border:1px solid var(--line); }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--low); }
+  .dot.ok { background:#4ade80; } .dot.err { background:var(--high); } .dot.busy { background:var(--medium); animation:blink 1s infinite; }
+  @keyframes blink { 50% { opacity:.3; } }
+  main { max-width:1180px; margin:0 auto; padding:22px; }
+  .meta { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:18px; }
+  .meta .chip { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-size:12px; color:var(--muted); }
+  .meta .chip b { color:var(--text); font-weight:600; }
+  .btn { background:var(--blue); color:#fff; border:none; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:18px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card .label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .card .num { font-size:30px; font-weight:800; margin-top:6px; }
+  .card.high .num { color:var(--high); } .card.medium .num { color:var(--medium); } .card.low .num { color:var(--low); }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .panel-head { padding:13px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .panel-head h2 { font-size:14px; font-weight:700; }
+  .panel-head select { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; padding:10px 14px; color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid var(--line); }
+  td { padding:10px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  .badge { display:inline-block; padding:3px 9px; border-radius:999px; font-size:11px; font-weight:700; text-transform:uppercase; }
+  .badge.high { background:rgba(248,113,113,.15); color:var(--high); }
+  .badge.medium { background:rgba(251,191,36,.15); color:var(--medium); }
+  .badge.low { background:rgba(56,189,248,.15); color:var(--low); }
+  .type-secret { color:#c084fc; font-size:11px; text-transform:uppercase; } .type-pii { color:#34d399; font-size:11px; text-transform:uppercase; }
+  .file { font-family:ui-monospace,Consolas,monospace; font-size:12px; color:var(--text); }
+  .match { font-family:ui-monospace,Consolas,monospace; font-size:12px; color:var(--muted); word-break:break-all; }
+  .empty { padding:30px; text-align:center; color:var(--muted); font-size:14px; }
+  footer { text-align:center; color:var(--muted); font-size:12px; padding:20px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">B</div>
+  <div>
+    <h1>BFSIboard</h1>
+    <div class="sub">Self-hosted PII &amp; credential monitoring</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="status-pill"><span class="dot" id="dot"></span><span id="statusText">connecting…</span></div>
+</header>
+<main>
+  <div class="meta">
+    <div class="chip">Scan path: <b id="scanPath">…</b></div>
+    <div class="chip">Interval: <b id="scanInterval">…</b></div>
+    <div class="chip">Last scan: <b id="lastScan">…</b></div>
+    <div class="chip">Next scan: <b id="nextScan">…</b></div>
+    <button class="btn" id="scanBtn">Scan now</button>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="label">Total findings</div><div class="num" id="cTotal">–</div></div>
+    <div class="card high"><div class="label">High</div><div class="num" id="cHigh">–</div></div>
+    <div class="card medium"><div class="label">Medium</div><div class="num" id="cMedium">–</div></div>
+    <div class="card low"><div class="label">Low</div><div class="num" id="cLow">–</div></div>
+    <div class="card"><div class="label">Files scanned</div><div class="num" id="cFiles">–</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Findings</h2>
+      <select id="fSeverity"><option value="">All severities</option><option>high</option><option>medium</option><option>low</option></select>
+      <select id="fType"><option value="">All types</option><option value="secret">secret</option><option value="pii">pii</option></select>
+    </div>
+    <table>
+      <thead><tr><th>Severity</th><th>Type</th><th>Rule</th><th>File</th><th>Matched</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="empty">No scan results yet.</td></tr></tbody>
+    </table>
+  </div>
+</main>
+<footer>All findings are masked. Nothing leaves this machine.</footer>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let lastStatus = null;
+
+  function setStatus(s) {
+    const dot = $("dot");
+    dot.className = "dot" + (s === "ok" ? " ok" : s === "error" ? " err" : s === "scanning" ? " busy" : "");
+    $("statusText").textContent = s === "ok" ? "monitoring" : s === "error" ? "scan error" : s === "scanning" ? "scanning…" : s;
+  }
+
+  function renderStatus(s) {
+    lastStatus = s;
+    setStatus(s.status);
+    $("scanPath").textContent = s.scanPath || "…";
+    $("scanInterval").textContent = s.scanInterval ? s.scanInterval + "s" : "…";
+    $("lastScan").textContent = s.lastScan ? new Date(s.lastScan).toLocaleTimeString() : "never";
+    $("nextScan").textContent = s.nextScan ? new Date(s.nextScan).toLocaleTimeString() : "–";
+    $("cTotal").textContent = s.summary ? s.summary.total : 0;
+    $("cHigh").textContent = s.summary ? s.summary.high : 0;
+    $("cMedium").textContent = s.summary ? s.summary.medium : 0;
+    $("cLow").textContent = s.summary ? s.summary.low : 0;
+    $("cFiles").textContent = s.filesScanned || 0;
+  }
+
+  function renderFindings(list) {
+    const tb = $("rows");
+    if (!list.length) {
+      tb.innerHTML = '<tr><td colspan="5" class="empty">No findings match the current filter.</td></tr>';
+      return;
+    }
+    tb.innerHTML = list.map((f) => `
+      <tr>
+        <td><span class="badge ${f.severity}">${f.severity}</span></td>
+        <td><span class="type-${f.type}">${f.type}</span></td>
+        <td>${f.name}</td>
+        <td class="file">${f.file}:${f.line}</td>
+        <td class="match">${f.match}</td>
+      </tr>`).join("");
+  }
+
+  async function loadStatus() {
+    try {
+      const r = await fetch("/api/status");
+      renderStatus(await r.json());
+    } catch (e) {
+      setStatus("error");
+    }
+  }
+
+  async function loadFindings() {
+    const sev = $("fSeverity").value;
+    const typ = $("fType").value;
+    const q = new URLSearchParams();
+    if (sev) q.set("severity", sev);
+    if (typ) q.set("type", typ);
+    q.set("limit", "200");
+    try {
+      const r = await fetch("/api/findings?" + q.toString());
+      const data = await r.json();
+      renderFindings(data.findings);
+    } catch (e) {
+      /* keep old rows */
+    }
+  }
+
+  async function refresh() {
+    await Promise.all([loadStatus(), loadFindings()]);
+  }
+
+  $("scanBtn").addEventListener("click", async () => {
+    $("scanBtn").disabled = true;
+    $("scanBtn").textContent = "Scanning…";
+    try { await fetch("/api/scan", { method: "POST" }); } catch (e) {}
+    setTimeout(async () => {
+      await refresh();
+      $("scanBtn").disabled = false;
+      $("scanBtn").textContent = "Scan now";
+    }, 1500);
+  });
+
+  $("fSeverity").addEventListener("change", loadFindings);
+  $("fType").addEventListener("change", loadFindings);
+
+  refresh();
+  setInterval(refresh, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "name": "@bfsiboard/cli",
+  "version": "0.1.0",
+  "description": "Open-source PII and credential monitoring for the BFSI sector. Scans code, config and cloud files for exposed personal data and secrets.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "lib/scanner.js",
+  "bin": {
+    "bfsiboard": "bin/bfsiboard.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "scan": "node bin/bfsiboard.js scan",
+    "test": "node test/run.js"
+  },
+  "keywords": [
+    "pii",
+    "secrets",
+    "secret-scanning",
+    "credential-monitoring",
+    "data-breach",
+    "gdpr",
+    "bfsi",
+    "security",
+    "self-hosted"
+  ]
+}
