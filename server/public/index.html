@@ -23,6 +23,9 @@
   .meta .chip b { color:var(--text); font-weight:600; }
   .btn { background:var(--blue); color:#fff; border:none; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; }
   .btn:disabled { opacity:.5; cursor:default; }
+  .btn.ghost { background:var(--panel); color:var(--text); border:1px solid var(--line); }
+  .error-banner { display:flex; align-items:center; gap:8px; background:rgba(248,113,113,.12); border:1px solid var(--high); color:var(--high); border-radius:8px; padding:8px 12px; font-size:12px; margin-bottom:14px; }
+  .error-banner[hidden] { display:none; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:18px; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
   .card .label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
@@ -44,6 +47,15 @@
   .file { font-family:ui-monospace,Consolas,monospace; font-size:12px; color:var(--text); }
   .match { font-family:ui-monospace,Consolas,monospace; font-size:12px; color:var(--muted); word-break:break-all; }
   .empty { padding:30px; text-align:center; color:var(--muted); font-size:14px; }
+  .findings-note { padding:10px 14px; font-size:12px; color:var(--muted); border-top:1px solid var(--line); }
+  .feed-list { list-style:none; }
+  .feed-item { padding:12px 16px; border-bottom:1px solid var(--line); }
+  .feed-item:last-child { border-bottom:none; }
+  .feed-title { color:var(--text); text-decoration:none; font-size:13px; font-weight:600; }
+  .feed-title:hover { color:var(--blue); }
+  .feed-sub { display:flex; gap:10px; margin-top:4px; font-size:11px; color:var(--muted); flex-wrap:wrap; }
+  .feed-src { color:var(--low); }
+  .feed-meta { font-size:11px; color:var(--muted); }
   footer { text-align:center; color:var(--muted); font-size:12px; padding:20px; }
 </style>
 </head>
@@ -66,6 +78,8 @@
     <button class="btn" id="scanBtn">Scan now</button>
   </div>
 
+  <div class="error-banner" id="errorBanner" hidden></div>
+
   <div class="cards">
     <div class="card"><div class="label">Total findings</div><div class="num" id="cTotal">–</div></div>
     <div class="card high"><div class="label">High</div><div class="num" id="cHigh">–</div></div>
@@ -84,23 +98,43 @@
       <thead><tr><th>Severity</th><th>Type</th><th>Rule</th><th>File</th><th>Matched</th></tr></thead>
       <tbody id="rows"><tr><td colspan="5" class="empty">No scan results yet.</td></tr></tbody>
     </table>
+    <div class="findings-note" id="findingsNote" hidden></div>
+  </div>
+
+  <div class="panel" style="margin-top:18px;">
+    <div class="panel-head">
+      <h2>Press release</h2>
+      <span class="feed-meta" id="feedMeta">…</span>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="feedBtn">Refresh</button>
+    </div>
+    <ul class="feed-list" id="feedList"><li class="empty">Loading press releases…</li></ul>
   </div>
 </main>
 <footer>All findings are masked. Nothing leaves this machine.</footer>
 
 <script>
   const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const SEV_OK = new Set(["high", "medium", "low"]);
+  const TYPE_OK = new Set(["secret", "pii"]);
   let lastStatus = null;
 
-  function setStatus(s) {
+  function setStatus(s, detail) {
     const dot = $("dot");
     dot.className = "dot" + (s === "ok" ? " ok" : s === "error" ? " err" : s === "scanning" ? " busy" : "");
-    $("statusText").textContent = s === "ok" ? "monitoring" : s === "error" ? "scan error" : s === "scanning" ? "scanning…" : s;
+    const text = $("statusText");
+    if (s === "ok") text.textContent = "monitoring";
+    else if (s === "error") text.textContent = "scan error";
+    else if (s === "scanning") text.textContent = "scanning…";
+    else if (s === "idle") text.textContent = "starting…";
+    else text.textContent = s;
+    text.title = detail || "";
   }
 
   function renderStatus(s) {
     lastStatus = s;
-    setStatus(s.status);
+    setStatus(s.status, s.error || "");
     $("scanPath").textContent = s.scanPath || "…";
     $("scanInterval").textContent = s.scanInterval ? s.scanInterval + "s" : "…";
     $("lastScan").textContent = s.lastScan ? new Date(s.lastScan).toLocaleTimeString() : "never";
@@ -110,22 +144,33 @@
     $("cMedium").textContent = s.summary ? s.summary.medium : 0;
     $("cLow").textContent = s.summary ? s.summary.low : 0;
     $("cFiles").textContent = s.filesScanned || 0;
+    const banner = $("errorBanner");
+    if (s.error) {
+      banner.textContent = "Last scan error: " + s.error;
+      banner.hidden = false;
+    } else {
+      banner.hidden = true;
+    }
   }
 
   function renderFindings(list) {
     const tb = $("rows");
-    if (!list.length) {
+    if (!list || !list.length) {
       tb.innerHTML = '<tr><td colspan="5" class="empty">No findings match the current filter.</td></tr>';
       return;
     }
-    tb.innerHTML = list.map((f) => `
+    tb.innerHTML = list.map((f) => {
+      const sev = SEV_OK.has(f.severity) ? f.severity : "low";
+      const typ = TYPE_OK.has(f.type) ? f.type : "secret";
+      return `
       <tr>
-        <td><span class="badge ${f.severity}">${f.severity}</span></td>
-        <td><span class="type-${f.type}">${f.type}</span></td>
-        <td>${f.name}</td>
-        <td class="file">${f.file}:${f.line}</td>
-        <td class="match">${f.match}</td>
-      </tr>`).join("");
+        <td><span class="badge ${sev}">${esc(f.severity)}</span></td>
+        <td><span class="type-${typ}">${esc(f.type)}</span></td>
+        <td>${esc(f.name)}</td>
+        <td class="file">${esc(f.file)}:${esc(f.line)}</td>
+        <td class="match">${esc(f.match)}</td>
+      </tr>`;
+    }).join("");
   }
 
   async function loadStatus() {
@@ -133,7 +178,7 @@
       const r = await fetch("/api/status");
       renderStatus(await r.json());
     } catch (e) {
-      setStatus("error");
+      setStatus("error", "unable to reach API");
     }
   }
 
@@ -148,8 +193,47 @@
       const r = await fetch("/api/findings?" + q.toString());
       const data = await r.json();
       renderFindings(data.findings);
+      const note = $("findingsNote");
+      if (data.truncated) {
+        note.textContent = `Showing ${data.findings ? data.findings.length : 0} of ${data.count} findings (limit reached).`;
+        note.hidden = false;
+      } else {
+        note.hidden = true;
+      }
     } catch (e) {
       /* keep old rows */
+    }
+  }
+
+  function safeUrl(u) {
+    return typeof u === "string" && /^https?:\/\//i.test(u) ? u : "#";
+  }
+
+  function renderFeeds(d) {
+    const ul = $("feedList");
+    const items = (d && d.items) || [];
+    const meta = $("feedMeta");
+    if (!items.length) {
+      ul.innerHTML = '<li class="empty">No press releases fetched yet.</li>';
+      meta.textContent = (d && d.errors && d.errors.length) ? "All feed sources failed" : "…";
+      return;
+    }
+    ul.innerHTML = items.map((it) => `
+      <li class="feed-item">
+        <a class="feed-title" href="${esc(safeUrl(it.link))}" target="_blank" rel="noopener noreferrer">${esc(it.title)}</a>
+        <div class="feed-sub"><span class="feed-src">${esc(it.source)}</span><span>${it.date ? new Date(it.date).toLocaleString() : ""}</span></div>
+      </li>`).join("");
+    const sources = new Set(items.map((i) => i.source)).size;
+    const errs = (d.errors && d.errors.length) || 0;
+    meta.textContent = `${items.length} items · ${sources} sources${errs ? ` · ${errs} source error(s)` : ""} · updated ${d.fetchedAt ? new Date(d.fetchedAt).toLocaleTimeString() : "…"}`;
+  }
+
+  async function loadFeeds() {
+    try {
+      const r = await fetch("/api/feeds");
+      renderFeeds(await r.json());
+    } catch (e) {
+      /* keep current list */
     }
   }
 
@@ -168,11 +252,14 @@
     }, 1500);
   });
 
+  $("feedBtn").addEventListener("click", loadFeeds);
   $("fSeverity").addEventListener("change", loadFindings);
   $("fType").addEventListener("change", loadFindings);
 
   refresh();
+  loadFeeds();
   setInterval(refresh, 10000);
+  setInterval(loadFeeds, 600000);
 </script>
 </body>
 </html>

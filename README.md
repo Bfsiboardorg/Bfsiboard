@@ -66,6 +66,10 @@ bfsiboard scan . && echo "clean" || echo "secrets found"
 | `BFSIBOARD_PORT` | `8080` | HTTP port |
 | `BFSIBOARD_SCAN_PATH` | `/data` (in container) | Directory to scan |
 | `BFSIBOARD_SCAN_INTERVAL` | `900` | Seconds between scans |
+| `BFSIBOARD_FEEDS` | FCA, SEC, Fed, FINRA, BoE, PCI SSC, CISA, NCSC | Comma-separated RSS/Atom feed URLs for the Press release panel |
+| `BFSIBOARD_FEED_TTL` | `1800` | Seconds between feed refreshes |
+| `BFSIBOARD_FEED_TIMEOUT` | `10000` | Per-feed fetch timeout in ms |
+| `BFSIBOARD_FEED_LIMIT` | `60` | Max aggregated feed items shown |
 
 ## Detection
 

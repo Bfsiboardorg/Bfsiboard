@@ -6,6 +6,8 @@ ENV NODE_ENV=production
 ENV BFSIBOARD_PORT=8080
 ENV BFSIBOARD_SCAN_PATH=/data
 ENV BFSIBOARD_SCAN_INTERVAL=900
+ENV BFSIBOARD_FEEDS=https://www.fca.org.uk/news/rss.xml,https://www.sec.gov/news/pressreleases.rss,https://www.federalreserve.gov/feeds/press_all.xml,https://www.finra.org/rss.xml,https://www.bankofengland.co.uk/rss/news,https://blog.pcisecuritystandards.org/blog/rss.xml,https://www.cisa.gov/cybersecurity-advisories/all.xml,https://www.ncsc.gov.uk/api/1/services/v1/report-rss-feed.xml
+ENV BFSIBOARD_FEED_TTL=1800
 
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --no-audit --no-fund

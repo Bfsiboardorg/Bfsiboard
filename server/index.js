@@ -11,6 +11,19 @@ const PORT = parseInt(process.env.BFSIBOARD_PORT || "8080", 10);
 const SCAN_PATH = process.env.BFSIBOARD_SCAN_PATH || process.cwd();
 const SCAN_INTERVAL = parseInt(process.env.BFSIBOARD_SCAN_INTERVAL || "900", 10);
 const PUBLIC_DIR = path.join(__dirname, "public");
+const FEEDS = (process.env.BFSIBOARD_FEEDS || [
+  "https://www.fca.org.uk/news/rss.xml",
+  "https://www.sec.gov/news/pressreleases.rss",
+  "https://www.federalreserve.gov/feeds/press_all.xml",
+  "https://www.finra.org/rss.xml",
+  "https://www.bankofengland.co.uk/rss/news",
+  "https://blog.pcisecuritystandards.org/blog/rss.xml",
+  "https://www.cisa.gov/cybersecurity-advisories/all.xml",
+  "https://www.ncsc.gov.uk/api/1/services/v1/report-rss-feed.xml",
+].join(",")).split(",").map((s) => s.trim()).filter(Boolean);
+const FEED_TTL = parseInt(process.env.BFSIBOARD_FEED_TTL || "1800", 10);
+const FEED_TIMEOUT_MS = parseInt(process.env.BFSIBOARD_FEED_TIMEOUT || "10000", 10);
+const FEED_MAX_ITEMS = parseInt(process.env.BFSIBOARD_FEED_LIMIT || "60", 10);
 
 const state = {
   status: "idle",
@@ -20,6 +33,98 @@ const state = {
   error: null,
   result: { findings: [], summary: { high: 0, medium: 0, low: 0, total: 0, secret: 0, pii: 0 }, filesScanned: 0 },
 };
+
+const feedState = { items: [], fetchedAt: null, errors: [] };
+
+function stripTags(s) {
+  return String(s)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;/gi, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function feedField(block, tag) {
+  const safe = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`<${safe}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${safe}>`, "i");
+  const m = block.match(re);
+  return m ? stripTags(m[1]) : "";
+}
+
+function parseFeed(xml, source) {
+  const items = [];
+  const re = /<(item|entry)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    const block = m[2];
+    let link = feedField(block, "link");
+    if (!link) {
+      const a = block.match(/<link[^>]*href=["']([^"']+)["']/i);
+      link = a ? stripTags(a[1]) : "";
+    }
+    const title = feedField(block, "title") || "Untitled";
+    const dateRaw =
+      feedField(block, "pubDate") ||
+      feedField(block, "published") ||
+      feedField(block, "updated") ||
+      feedField(block, "dc:date");
+    const published = dateRaw ? Date.parse(dateRaw) : NaN;
+    if (!link || !title) continue;
+    items.push({
+      title,
+      link,
+      source,
+      published: Number.isFinite(published) ? published : 0,
+      date: Number.isFinite(published) ? new Date(published).toISOString() : null,
+    });
+  }
+  return items;
+}
+
+async function fetchFeed(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FEED_TIMEOUT_MS);
+  try {
+    const r = await fetch(url, {
+      signal: ctrl.signal,
+      redirect: "follow",
+      headers: {
+        "User-Agent": "BFSIboard/0.1 (self-hosted dashboard; https://bfsiboard.org)",
+        "Accept": "application/rss+xml, application/atom+xml, text/xml, application/xml, */*",
+      },
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const xml = await r.text();
+    return parseFeed(xml, url);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function refreshFeeds() {
+  if (!FEEDS.length) return;
+  const results = await Promise.allSettled(FEEDS.map(fetchFeed));
+  const errors = [];
+  const all = [];
+  results.forEach((res, i) => {
+    if (res.status === "fulfilled") all.push(...res.value);
+    else errors.push({ url: FEEDS[i], error: res.reason ? res.reason.message : "fetch failed" });
+  });
+  all.sort((a, b) => (b.published || 0) - (a.published || 0));
+  feedState.items = all.slice(0, FEED_MAX_ITEMS);
+  feedState.errors = errors;
+  feedState.fetchedAt = new Date().toISOString();
+  if (errors.length) {
+    console.error(`[bfsiboard] feed errors: ${errors.map((e) => `${e.url} (${e.error})`).join("; ")}`);
+  }
+}
 
 async function runScan() {
   if (state.status === "scanning") return;
@@ -78,7 +183,8 @@ function findingsPayload(reqUrl) {
   let list = state.result.findings;
   if (severity) list = list.filter((f) => f.severity === severity);
   if (type) list = list.filter((f) => f.type === type);
-  return { count: list.length, findings: list.slice(0, Math.min(limit, 2000)) };
+  const capped = list.slice(0, Math.min(limit, 2000));
+  return { count: list.length, truncated: list.length > capped.length || !!state.result.truncated, findings: capped };
 }
 
 const MIME = {
@@ -121,6 +227,9 @@ const server = http.createServer((req, res) => {
   if (req.method === "GET" && pathname === "/api/findings") {
     return sendJson(res, 200, findingsPayload(req.url));
   }
+  if (req.method === "GET" && pathname === "/api/feeds") {
+    return sendJson(res, 200, feedState);
+  }
   if (req.method === "POST" && pathname === "/api/scan") {
     runScan().then(() => sendJson(res, 202, { accepted: true }));
     return;
@@ -135,10 +244,16 @@ runScan().then(() => {
   server.listen(PORT, () => {
     console.log(`[bfsiboard] dashboard: http://localhost:${PORT}`);
     console.log(`[bfsiboard] scanning every ${SCAN_INTERVAL}s: ${SCAN_PATH}`);
+    console.log(`[bfsiboard] press release feeds: ${FEEDS.length} source(s), refreshed every ${FEED_TTL}s`);
   });
 });
 
 setInterval(runScan, SCAN_INTERVAL * 1000);
+
+refreshFeeds().catch((err) => console.error(`[bfsiboard] feed refresh failed: ${err.message}`));
+setInterval(() => {
+  refreshFeeds().catch((err) => console.error(`[bfsiboard] feed refresh failed: ${err.message}`));
+}, FEED_TTL * 1000);
 
 function shutdown(signal) {
   console.log(`[bfsiboard] ${signal} received, shutting down`);
