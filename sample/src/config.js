@@ -1,5 +1,5 @@
 // Sample file with FAKE secrets for local testing.
-// Every credential below is fabricated — do not use anywhere.
+// Every credential below is fabricated â€” do not use anywhere.
 
 module.exports = {
   // AWS access key pattern (fake)
