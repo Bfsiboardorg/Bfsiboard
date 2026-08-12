@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install --no-audit --no-fund
+
+      - name: Run scanner test suite
+        run: npm test
+
+      - name: CLI smoke test
+        run: |
+          node bin/bfsiboard.js rules
+          node bin/bfsiboard.js scan ./sample --json --no-fail --no-write | head -40
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t bfsiboard:ci .
+
+      - name: Smoke test container
+        run: |
+          docker run -d --name bfsiboard-ci -p 8080:8080 \
+            -v "$PWD/sample:/data:ro" \
+            -e BFSIBOARD_SCAN_PATH=/data \
+            bfsiboard:ci
+          sleep 5
+          curl -fsS http://localhost:8080/api/health
+          curl -fsS http://localhost:8080/api/status
+          curl -fsS http://localhost:8080/api/findings | grep -q '"findings"'
+          echo "container smoke test passed"
