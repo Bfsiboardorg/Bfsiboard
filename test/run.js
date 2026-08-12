@@ -20,10 +20,10 @@ async function main() {
   assert(cc, "valid test card (Luhn) not detected");
 
   const leakedSecrets = [
-    "AKIA__FAKE_AWS_KEY__",
-    "__AWS_FAKE_SECRET_KEY__",
-    "ghp__FAKE_GITHUB_PAT__",
-    "sk_test__FAKE_STRIPE_KEY__",
+    "AKIAABCDEFGHIJKLMNOP",
+    "AWSFAKESECRETKEYABCDEFGHIJKLMNOPQRSTUVWX",
+    "ghp_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE",
+    "sk_live_ABCDEFGHIJKLMNOP",
     "FAKE_DB_PASS",
     "2345 6789 0123",
     "4111 1111 1111 1111",
