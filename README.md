@@ -13,7 +13,7 @@ exposed personal data (PII) and secrets — then shows it on a local dashboard.
 docker run -d -p 8080:8080 \
   -v "$PWD:/data:ro" \
   -e BFSIBOARD_SCAN_PATH=/data \
-  ghcr.io/bfsiboard/bfsiboard:latest
+  ghcr.io/bfsiboardorg/bfsiboard:latest
 ```
 
 Open **http://localhost:8080** — the dashboard shows scan status and masked findings.
@@ -27,7 +27,7 @@ docker compose up -d
 ## CLI
 
 ```bash
-npm install -g @bfsiboard/cli
+npm install -g @bfsiboardorg/cli
 bfsiboard scan .          # scan current directory
 bfsiboard scan ./src --json
 bfsiboard rules           # list detection rules
@@ -78,11 +78,11 @@ Indian mobile numbers, emails, IPs. Findings are **masked** by default.
 
 ```bash
 # npm package
-npm publish --access public            # needs npm token + @bfsiboard org access
+npm publish --access public            # needs npm token + @bfsiboardorg access
 
 # container image
 docker buildx build --platform linux/amd64,linux/arm64 \
-  --push -t ghcr.io/bfsiboard/bfsiboard:latest .
+  --push -t ghcr.io/bfsiboardorg/bfsiboard:latest .
 ```
 
 ## Development

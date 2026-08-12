@@ -1,5 +1,5 @@
 {
-  "name": "@bfsiboard/cli",
+  "name": "@bfsiboardorg/cli",
   "version": "0.1.0",
   "description": "Open-source PII and credential monitoring for the BFSI sector. Scans code, config and cloud files for exposed personal data and secrets.",
   "license": "MIT",

@@ -1,6 +1,6 @@
 services:
   bfsiboard:
-    image: ghcr.io/bfsiboard/bfsiboard:latest
+    image: ghcr.io/bfsiboardorg/bfsiboard:latest
     build: .
     ports:
       - "8080:8080"
